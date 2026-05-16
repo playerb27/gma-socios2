@@ -13,7 +13,6 @@ import Documents from './views/Documents';
 import CashFlow from './views/CashFlow';
 import Payouts from './views/Payouts';
 import Login from './views/Login';
-import ImportData from './views/ImportData';
 import { supabase } from './supabase';
 import './index.css';
 
@@ -134,7 +133,7 @@ function App() {
             <Route path="/documentos" element={<Documents />} />
             <Route path="/finanzas" element={<CashFlow />} />
             <Route path="/pagos" element={<Payouts />} />
-            <Route path="/importar" element={<ImportData />} />
+
           </Routes>
         </main>
       </div>
