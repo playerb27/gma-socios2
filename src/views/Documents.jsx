@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../supabase';
 import { uploadFile, openFile, isFirebasePath } from '../utils/storage';
 import { 
@@ -41,17 +41,14 @@ const Documents = () => {
     fileName: ''
   });
 
+  // fetchDocs is a useCallback so it can be called from anywhere (submit, delete, etc.)
+  const fetchDocs = useCallback(async () => {
+    const { data, error } = await supabase.from('documents').select('*').order('upload_date', { ascending: false });
+    if (error) console.error('Error fetching documents:', error);
+    setDocuments((data || []).map(d => ({ ...d, uploadDate: d.upload_date, documentDate: d.document_date, fileUrl: d.file_url, fileName: d.file_name, fileType: d.file_type })));
+  }, []);
+
   useEffect(() => {
-    // Fetch documents
-    const fetchDocs = async () => {
-      const { data, error } = await supabase.from('documents').select('*').order('upload_date', { ascending: false });
-      if (error) {
-        console.error('Error fetching documents:', error);
-      } else {
-        console.log('Documents fetched:', data);
-      }
-      setDocuments((data || []).map(d => ({ ...d, uploadDate: d.upload_date, documentDate: d.document_date, fileUrl: d.file_url, fileName: d.file_name, fileType: d.file_type })));
-    };
     fetchDocs();
 
     // Fetch categories from settings
@@ -64,13 +61,13 @@ const Documents = () => {
     };
     fetchCats();
 
-    // Realtime for documents
+    // Realtime — backup for other sessions/devices
     const channel = supabase.channel('realtime:documents')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'documents' }, fetchDocs)
       .subscribe();
 
     return () => supabase.removeChannel(channel);
-  }, []);
+  }, [fetchDocs]);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
@@ -116,6 +113,8 @@ const Documents = () => {
         size: form.file.size
       });
 
+      // Refresh immediately — don't wait for Realtime
+      await fetchDocs();
       handleCloseModal();
     } catch (error) {
       console.error('Error uploading document:', error);
@@ -130,6 +129,8 @@ const Documents = () => {
       try {
         const { error } = await supabase.from('documents').delete().eq('id', id);
         if (error) throw error;
+        // Refresh immediately
+        await fetchDocs();
       } catch (error) {
         console.error('Error deleting document:', error);
         alert('Error al eliminar');
