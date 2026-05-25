@@ -154,14 +154,22 @@ const RelinkTab = () => {
 
   const loadData = async () => {
     setLoading(true);
-    // Load storage files
-    const { data: files } = await supabase.storage.from('comprobantes').list('comprobantes', { limit: 200, sortBy: { column: 'created_at', order: 'asc' } });
-    const mappedFiles = (files || []).map(f => {
-      const { data: { publicUrl } } = supabase.storage.from('comprobantes').getPublicUrl(`comprobantes/${f.name}`);
-      return { name: f.name, url: publicUrl, size: f.metadata?.size };
-    });
-    setStorageFiles(mappedFiles);
-    // Load records with broken/firebase URLs
+    // Load storage files from all known subfolders
+    const folders = ['records', 'documents', 'business_documents', 'comprobantes'];
+    let allFiles = [];
+    for (const folder of folders) {
+      const { data: files } = await supabase.storage.from('comprobantes').list(folder, { limit: 500, sortBy: { column: 'name', order: 'asc' } });
+      if (files?.length) {
+        allFiles = [...allFiles, ...files.map(f => ({
+          name: f.name,
+          path: `${folder}/${f.name}`,
+          folder,
+          size: f.metadata?.size
+        }))];
+      }
+    }
+    setStorageFiles(allFiles);
+    // Load all records with their file_urls
     const { data: recs } = await supabase.from('records').select('id, socio, cantidad, fecha, descripcion, file_urls').order('fecha');
     setRecords(recs || []);
     setLoading(false);
@@ -172,15 +180,15 @@ const RelinkTab = () => {
   const uploadNewFile = async (recordId, file) => {
     setSaving(recordId);
     try {
-      const path = `comprobantes/${Date.now()}_${file.name}`;
+      const folder = file.type.includes('pdf') ? 'documents' : 'records';
+      const path = `${folder}/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
       const { error } = await supabase.storage.from('comprobantes').upload(path, file);
       if (error) throw error;
-      const { data: { publicUrl } } = supabase.storage.from('comprobantes').getPublicUrl(path);
-      // Add to record
+      // Store the PATH (not public URL) — consistent with new system
       const rec = records.find(r => r.id === recordId);
-      const currentUrls = (rec.file_urls || []).filter(u => !u.includes('firebasestorage'));
-      const newUrls = [...currentUrls, publicUrl];
-      await supabase.from('records').update({ file_urls: newUrls, num_archivos: newUrls.length }).eq('id', recordId);
+      const currentPaths = (rec.file_urls || []).filter(u => !isFirebaseUrl(u));
+      const newPaths = [...currentPaths, path];
+      await supabase.from('records').update({ file_urls: newPaths, num_archivos: newPaths.length }).eq('id', recordId);
       await loadData();
     } catch (err) {
       alert(`Error: ${err.message}`);
@@ -189,14 +197,14 @@ const RelinkTab = () => {
     }
   };
 
-  const attachStorageFile = async (recordId, storageUrl) => {
+  const attachStorageFile = async (recordId, storagePath) => {
     setSaving(recordId);
     try {
       const rec = records.find(r => r.id === recordId);
-      const currentUrls = (rec.file_urls || []).filter(u => !u.includes('firebasestorage'));
-      if (currentUrls.includes(storageUrl)) { setSaving(null); return; }
-      const newUrls = [...currentUrls, storageUrl];
-      await supabase.from('records').update({ file_urls: newUrls, num_archivos: newUrls.length }).eq('id', recordId);
+      const currentPaths = (rec.file_urls || []).filter(u => !isFirebaseUrl(u));
+      if (currentPaths.includes(storagePath)) { setSaving(null); return; }
+      const newPaths = [...currentPaths, storagePath];
+      await supabase.from('records').update({ file_urls: newPaths, num_archivos: newPaths.length }).eq('id', recordId);
       await loadData();
     } catch (err) {
       alert(`Error: ${err.message}`);
@@ -218,8 +226,32 @@ const RelinkTab = () => {
 
   if (loading) return <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}><Loader2 className="animate-spin" size={32} /></div>;
 
+  const recordsWithFirebase = records.filter(r => (r.file_urls || []).some(isFirebaseUrl));
+  const recordsOk = records.filter(r => (r.file_urls || []).length > 0 && !(r.file_urls || []).some(isFirebaseUrl));
+  const recordsEmpty = records.filter(r => !r.file_urls || r.file_urls.length === 0);
+
   return (
     <div>
+      {/* Summary */}
+      <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '0.75rem', padding: '1rem', textAlign: 'center' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--error)' }}>{recordsWithFirebase.length}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Con URL Firebase (roto)</div>
+        </div>
+        <div style={{ flex: 1, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: '0.75rem', padding: '1rem', textAlign: 'center' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--success)' }}>{recordsOk.length}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Con archivo Supabase ✓</div>
+        </div>
+        <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--glass-border)', borderRadius: '0.75rem', padding: '1rem', textAlign: 'center' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text-secondary)' }}>{recordsEmpty.length}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Sin archivos</div>
+        </div>
+        <div style={{ flex: 1, background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: '0.75rem', padding: '1rem', textAlign: 'center' }}>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--accent-primary)' }}>{storageFiles.length}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Archivos en Storage</div>
+        </div>
+      </div>
+
       {/* Storage Files Available */}
       {storageFiles.length > 0 && (
         <div style={{ marginBottom: '2rem' }}>
@@ -228,27 +260,27 @@ const RelinkTab = () => {
           </h3>
           <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
             {storageFiles.map((f, i) => (
-              <a key={i} href={f.url} target="_blank" rel="noopener noreferrer"
-                style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid var(--success)', borderRadius: '0.5rem', padding: '0.4rem 0.75rem', fontSize: '0.75rem', color: 'var(--success)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <Eye size={12} /> Archivo {i + 1}
-              </a>
+              <div key={i} style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid var(--success)', borderRadius: '0.5rem', padding: '0.4rem 0.75rem', fontSize: '0.75rem', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <Eye size={12} />
+                <span title={f.path}>{f.folder}/{f.name.slice(0, 20)}{f.name.length > 20 ? '...' : ''}</span>
+              </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Records */}
+      {/* Records with Firebase URLs first */}
       <h3 style={{ fontSize: '0.875rem', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: '1rem', letterSpacing: '0.05em' }}>
-        📋 Inversiones y sus archivos
+        📋 Inversiones ({records.length} total)
       </h3>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {records.map(rec => {
           const firebaseUrls = (rec.file_urls || []).filter(isFirebaseUrl);
-          const goodUrls = (rec.file_urls || []).filter(u => !isFirebaseUrl(u));
-          const hasIssue = firebaseUrls.length > 0 || rec.file_urls?.length === 0;
+          const goodPaths = (rec.file_urls || []).filter(u => !isFirebaseUrl(u));
+          const hasIssue = firebaseUrls.length > 0;
 
           return (
-            <div key={rec.id} className="card" style={{ borderLeft: `4px solid ${hasIssue ? 'var(--warning)' : 'var(--success)'}`, padding: '1.25rem' }}>
+            <div key={rec.id} className="card" style={{ borderLeft: `4px solid ${hasIssue ? 'var(--error)' : goodPaths.length > 0 ? 'var(--success)' : 'var(--glass-border)'}`, padding: '1.25rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '0.75rem' }}>
                 <div>
                   <p style={{ fontWeight: 700, margin: 0 }}>{rec.socio}</p>
@@ -257,7 +289,6 @@ const RelinkTab = () => {
                   </p>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                  {/* Upload new file button */}
                   <input type="file" hidden ref={fileInputRef} accept="image/*,application/pdf"
                     onChange={async (e) => {
                       if (e.target.files[0] && selectedFile?.recordId === rec.id) {
@@ -274,24 +305,24 @@ const RelinkTab = () => {
                 </div>
               </div>
 
-              {/* Existing broken Firebase URLs */}
+              {/* Firebase URLs (broken) */}
               {firebaseUrls.length > 0 && (
                 <div style={{ background: 'rgba(239,68,68,0.08)', padding: '0.75rem', borderRadius: '0.5rem', marginBottom: '0.75rem' }}>
-                  <p style={{ fontSize: '0.7rem', color: 'var(--error)', margin: '0 0 0.5rem', fontWeight: 600 }}>⛔ URLs de Firebase (no accesibles):</p>
+                  <p style={{ fontSize: '0.7rem', color: 'var(--error)', margin: '0 0 0.5rem', fontWeight: 600 }}>⛔ URL de Firebase (no accesible) — sube el archivo de nuevo:</p>
                   {firebaseUrls.map((url, i) => (
                     <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
-                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url.slice(0, 60)}...</span>
+                      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url.slice(0, 70)}...</span>
                       <button onClick={() => removeUrl(rec.id, url)} style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', padding: '2px' }}><Trash2 size={12} /></button>
                     </div>
                   ))}
                   {storageFiles.length > 0 && (
                     <div style={{ marginTop: '0.75rem' }}>
-                      <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Vincular con archivo de Supabase Storage:</p>
+                      <p style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>O vincular con archivo ya subido a Supabase Storage:</p>
                       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                         {storageFiles.map((sf, i) => (
                           <button key={i} className="btn btn-secondary" style={{ fontSize: '0.7rem', padding: '0.3rem 0.6rem' }}
-                            onClick={() => attachStorageFile(rec.id, sf.url)}>
-                            <Link size={10} /> Archivo {i + 1}
+                            onClick={() => attachStorageFile(rec.id, sf.path)}>
+                            <Link size={10} /> {sf.folder}/{sf.name.slice(0, 15)}...
                           </button>
                         ))}
                       </div>
@@ -300,14 +331,14 @@ const RelinkTab = () => {
                 </div>
               )}
 
-              {/* Good Supabase URLs */}
-              {goodUrls.map((url, i) => (
+              {/* Good Supabase paths */}
+              {goodPaths.map((path, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(16,185,129,0.08)', padding: '0.5rem 0.75rem', borderRadius: '0.5rem', marginBottom: '0.4rem' }}>
                   <CheckCircle2 size={14} color="var(--success)" />
-                  <a href={url} target="_blank" rel="noopener noreferrer" style={{ fontSize: '0.75rem', color: 'var(--success)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    Ver archivo ↗
-                  </a>
-                  <button onClick={() => removeUrl(rec.id, url)} style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer' }}><Trash2 size={12} /></button>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--success)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    ✅ {path.startsWith('http') ? 'URL Supabase (legacy)' : `Path: ${path}`}
+                  </span>
+                  <button onClick={() => removeUrl(rec.id, path)} style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer' }}><Trash2 size={12} /></button>
                 </div>
               ))}
 

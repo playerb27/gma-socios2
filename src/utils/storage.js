@@ -30,15 +30,30 @@ export const getSignedUrl = async (pathOrUrl, expiresIn = 3600) => {
 
 /**
  * Opens a private file in a new tab using a signed URL.
+ * Opens the window SYNCHRONOUSLY first to avoid mobile popup blockers
+ * (Safari/iOS blocks window.open() called after async operations).
  */
 export const openFile = async (pathOrUrl) => {
+  // Must open synchronously BEFORE any await — mobile browsers block async popups
+  const newTab = window.open('', '_blank');
+  if (newTab) {
+    newTab.document.write('<html><head><title>Cargando...</title></head><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#111;color:#aaa"><p>Cargando archivo...</p></body></html>');
+  }
+
   const url = await getSignedUrl(pathOrUrl);
-  if (!url) { alert('No se pudo acceder al archivo.'); return; }
-  if (url.includes('firebasestorage')) {
-    alert('Este archivo estaba en Firebase Storage (servicio anterior) y ya no es accesible. Por favor sube el comprobante de nuevo desde tu dispositivo.');
+
+  if (!url || url.includes('firebasestorage')) {
+    if (newTab) newTab.close();
+    alert('Este archivo no es accesible. Por favor sube el comprobante de nuevo.');
     return;
   }
-  window.open(url, '_blank');
+
+  if (newTab) {
+    newTab.location.href = url;
+  } else {
+    // Fallback si el popup fue bloqueado de todas formas
+    window.location.href = url;
+  }
 };
 
 /**

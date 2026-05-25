@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../supabase';
+import { uploadFile, openFile, isFirebasePath } from '../utils/storage';
 import { 
   Plus, 
   Search, 
@@ -7,6 +8,7 @@ import {
   Trash2, 
   Upload, 
   X,
+  AlertTriangle,
   Filter,
   Calendar,
   Download,
@@ -42,7 +44,12 @@ const Documents = () => {
   useEffect(() => {
     // Fetch documents
     const fetchDocs = async () => {
-      const { data } = await supabase.from('documents').select('*').order('upload_date', { ascending: false });
+      const { data, error } = await supabase.from('documents').select('*').order('upload_date', { ascending: false });
+      if (error) {
+        console.error('Error fetching documents:', error);
+      } else {
+        console.log('Documents fetched:', data);
+      }
       setDocuments((data || []).map(d => ({ ...d, uploadDate: d.upload_date, documentDate: d.document_date, fileUrl: d.file_url, fileName: d.file_name, fileType: d.file_type })));
     };
     fetchDocs();
@@ -95,17 +102,15 @@ const Documents = () => {
         }
       }
 
-      const path = `business_documents/${Date.now()}_${form.file.name}`;
-      const { error: uploadError } = await supabase.storage.from('comprobantes').upload(path, form.file);
-      if (uploadError) throw uploadError;
-      const { data: { publicUrl } } = supabase.storage.from('comprobantes').getPublicUrl(path);
+      // Upload to Supabase Storage and store the path (not a public URL)
+      const storagePath = await uploadFile(form.file, 'business_documents');
 
       await supabase.from('documents').insert({
         name: form.name,
         category: finalCategory,
         upload_date: new Date().toISOString(),
         document_date: new Date(form.date).toISOString(),
-        file_url: publicUrl,
+        file_url: storagePath,
         file_name: form.file.name,
         file_type: form.file.type,
         size: form.file.size
@@ -120,11 +125,13 @@ const Documents = () => {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, fileUrl) => {
     if (window.confirm('¿Estás seguro de eliminar este documento?')) {
       try {
-        await supabase.from('documents').delete().eq('id', id);
+        const { error } = await supabase.from('documents').delete().eq('id', id);
+        if (error) throw error;
       } catch (error) {
+        console.error('Error deleting document:', error);
         alert('Error al eliminar');
       }
     }
@@ -406,15 +413,29 @@ const Documents = () => {
                   </div>
                 </td>
                 <td>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                    <button 
-                      className="btn btn-secondary" 
-                      style={{ padding: '0.4rem' }} 
-                      onClick={() => window.open(doc.fileUrl, '_blank')}
-                      title="Ver/Descargar"
-                    >
-                      <Download size={16} />
-                    </button>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', alignItems: 'center' }}>
+                    {isFirebasePath(doc.fileUrl) ? (
+                      <div
+                        title="Archivo en Firebase (no accesible). Vuelve a subirlo."
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '0.35rem',
+                          padding: '0.3rem 0.6rem', borderRadius: '0.5rem',
+                          background: 'rgba(239,68,68,0.1)', color: 'var(--error)',
+                          fontSize: '0.7rem', fontWeight: 600, cursor: 'default'
+                        }}
+                      >
+                        <AlertTriangle size={13} /> Firebase
+                      </div>
+                    ) : (
+                      <button 
+                        className="btn btn-secondary" 
+                        style={{ padding: '0.4rem' }} 
+                        onClick={() => openFile(doc.fileUrl)}
+                        title="Ver/Descargar"
+                      >
+                        <Download size={16} />
+                      </button>
+                    )}
                     <button 
                       className="btn btn-secondary" 
                       style={{ padding: '0.4rem', color: 'var(--error)' }} 

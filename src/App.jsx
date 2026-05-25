@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import { 
   Users, Wallet, PieChart as PieChartIcon, LayoutDashboard, Plus, Search, Filter,
-  FileText, Image as ImageIcon, Calendar, DollarSign, Undo2, TrendingUp, CreditCard, LogOut
+  FileText, Image as ImageIcon, Calendar, DollarSign, Undo2, TrendingUp, CreditCard, LogOut, Wrench
 } from 'lucide-react';
 
 import Dashboard from './views/Dashboard';
@@ -13,6 +13,7 @@ import Documents from './views/Documents';
 import CashFlow from './views/CashFlow';
 import Payouts from './views/Payouts';
 import Login from './views/Login';
+import ImportData from './views/ImportData';
 import { supabase } from './supabase';
 import './index.css';
 
@@ -44,6 +45,9 @@ const Sidebar = () => {
         </NavLink>
         <NavLink to="/pagos" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
           <CreditCard size={20} /> Pagos
+        </NavLink>
+        <NavLink to="/herramientas" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`} style={{ marginTop: 'auto', opacity: 0.6 }}>
+          <Wrench size={20} /> Herramientas
         </NavLink>
       </nav>
     </div>
@@ -133,6 +137,7 @@ function App() {
             <Route path="/documentos" element={<Documents />} />
             <Route path="/finanzas" element={<CashFlow />} />
             <Route path="/pagos" element={<Payouts />} />
+            <Route path="/herramientas" element={<ImportData />} />
 
           </Routes>
         </main>

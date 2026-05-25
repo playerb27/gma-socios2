@@ -25,7 +25,7 @@ const FileButton = ({ pathOrUrl, label, index = 0 }) => {
   return (
     <button
       onClick={handleClick}
-      title={isFirebase ? 'Archivo no disponible (Firebase)' : 'Ver archivo'}
+      title={isFirebase ? `⛔ Firebase URL (no accesible): ${pathOrUrl}` : `✅ Supabase path: ${pathOrUrl}`}
       style={{
         display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
         padding: '0.35rem 0.7rem', borderRadius: '0.5rem', cursor: 'pointer',
@@ -41,7 +41,7 @@ const FileButton = ({ pathOrUrl, label, index = 0 }) => {
           ? <AlertTriangle size={13} />
           : isImage ? <ImageIcon size={13} /> : <FileText size={13} />
       }
-      {label || `Archivo ${index + 1}`}
+      {label || `Doc ${index + 1}`}
     </button>
   );
 };
